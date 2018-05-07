@@ -1,0 +1,173 @@
+---
+title: "Assessment"
+author: "Celia Luciano Sagastume"
+date: "May 4, 2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r libraries}
+##load any librarys you may need.  tidyverse has already been loaded here for you
+
+library("dplyr")
+library("stringr")
+library("psych")
+library("ggplot2")
+library("readr")
+library("car")
+library("NonCompart")
+library("plotly")
+library("PK")
+```
+
+
+## Instructions
+
+This is an assessment project to be completed by prospective candidates looking to apply to the Biometrics Department at Denali Therapeutics.  The assessment is intended to take between 30-60 minutes to complete and is aimed at assessing required technical skills.  Please feel free to include more comprehensive or alternative approaches as you deem fit.  Completed report should be in html format.  Please create a **new github repository** to share your work with us. 
+
+
+
+## Data 
+Start by loading the dataset Theoph.  This is data relating to a  pharmacokinetics experiment of the anti-asthmatic drug theophylline.  
+
+
+```{r DataLoad}
+data(Theoph)
+```
+
+To add a bit more complexity, we will introduce a hypothetical demographics dataset characterizing the subjects.
+
+```{r demographics}
+
+##please add any corresponding data cleanup as needed
+dm <- read.csv("~/Desktop/Clinical_Data_Scientist_Intern_Assessment-master/dm.csv")
+str(dm)
+dems=dm
+dems$SUBJECT=as.numeric(as.character(dems$SUBJECT))
+dems<-mutate_all(dm,funs(toupper))
+dems$SEX[dems$SEX == "MALE"] <- "M"
+dems$SEX[dems$SEX == "FEMALE"] <- "F"
+dems$AGE_TYPE<- str_extract(dems$Age,"YEAR |MONTH|YEARS|MONTHS|WEEKS")
+
+
+
+dems1 <- dems %>%
+
+  mutate(
+
+    AGE_NUM = parse_number(Age))
+
+dems1$AGE_TYPE<-gsub("YEARS",1,dems1$AGE_TYPE)
+dems1$AGE_TYPE<-gsub("MONTH",12,dems1$AGE_TYPE)  
+dems1$AGE_TYPE<-gsub("WEEKS",52,dems1$AGE_TYPE)
+dems1$AGE_TYPE[is.na(dems1$AGE_TYPE)]<-1
+dems1$AGE_TYPE = as.numeric(dems1$AGE_TYPE)
+
+dems1$AGE = (dems1$AGE_NUM) / (dems1$AGE_TYPE)
+Boxplot(dems1$AGE)
+```
+### Outlier detected: cannot be sure the exact age (could be 600+ weeks or 600+ months,or 660 years (which could be corrected to 66.6 years), checking the literature for minimum age of participants would answer this question) Since reason for error and correct age cannot be ascertained with current information, I chose to delete the case from the set until I can determine how best to correct the error.
+
+```{r continue clean & merge without outlier}
+dems2 <- dems1[-c(6),]
+
+demographics <- dems2[,c(0:2,6),]
+
+colnames(demographics)[1]<-"Subject"
+
+PK_data<- merge(demographics,Theoph, by = c("Subject")) 
+PK_dataF<- PK_data %>% mutate(SEX = factor(SEX, levels = c("F", "M"), labels = c("Female", "Male")))
+colnames(PK_data)[6]<-"time"
+colnames(PK_data)[1]<-"id"
+
+
+
+PK_AUC<- PK_data %>% group_by(time) %>%  summarise( conc= mean(conc))
+PK_AUC<-mutate(PK_AUC, C1_C2= lag(conc, default = 0) + conc)
+PK_AUC<-mutate(PK_AUC, c_T= (time - lag(time, default = 0)))
+PK_AUC<-mutate(PK_AUC, AUC_lin= ((C1_C2)/2)*c_T)
+PK_AUC<-mutate(PK_AUC, AUC_tot= (AUC_lin + lag(AUC_lin, default = 0)))
+
+PK_data$Time_Point <- cut(PK_data$time, 6, include.lowest = TRUE, labels = c(0,5,10,15,20,25))
+
+Split_PK<-split(PK_data,PK_data$SEX)
+Male_PK<-Split_PK$M
+Fem_PK<-Split_PK$F
+
+F_PK<- Fem_PK %>% group_by(time) %>%  summarise( conc= mean(conc))
+F_PK<-mutate(F_PK, C1_C2= lag(conc, default = 0) + conc)
+F_PK<-mutate(F_PK, c_T= (time - lag(time, default = 0)))
+F_PK<-mutate(F_PK, AUC_lin= ((C1_C2)/2)*c_T)
+F_PK<-mutate(F_PK, AUC_tot= (AUC_lin + lag(AUC_lin, default = 0)), Gender = "Female")
+
+
+M_PK<- Male_PK %>% group_by(time) %>%  summarise( conc= mean(conc))
+M_PK<-mutate(M_PK, C1_C2= lag(conc, default = 0) + conc)
+M_PK<-mutate(M_PK, c_T= (time - lag(time, default = 0)))
+M_PK<-mutate(M_PK, AUC_lin= ((C1_C2)/2)*c_T)
+M_PK<-mutate(M_PK, AUC_tot= (AUC_lin + lag(AUC_lin, default = 0)) , Gender = "Male")
+
+
+
+```
+
+Please characterize and provide a summary of the data stratefied by gender.**
+
+*Hint:  Don't forget to also include characterization of age, weight and peak concentrations.*
+
+
+
+```{r summary}
+##input characterization and summary data code here.
+
+Dose.desc <- describeBy(PK_data$Dose,PK_data$SEX, mat = TRUE,  quant=c(.25,.75), IQR = TRUE)
+Conc.desc <- describeBy(PK_data$conc,PK_data$SEX, mat = TRUE,  quant=c(.25,.75), IQR = TRUE)
+Age.desc<- describeBy(PK_data$AGE,PK_data$SEX, mat = TRUE,  quant=c(.25,.75), IQR = TRUE)
+Weight.desc<- describeBy(PK_data$Wt,PK_data$SEX, mat = TRUE,  quant=c(.25,.75), IQR = TRUE)
+
+Dose.desc
+Conc.desc
+Age.desc
+Weight.desc
+
+```
+
+## Visualization
+
+You need to convey the data in a presentation.  Please generate figures to convey the data we have captured.  Pay particular attention to showing concentration change ov, er time as this is a PK experiment.  Please take time to make the figure as informative as possible. Feel free to use more than one figure if needed but bear in mind that this is a presentation so fewer figures to convey the information is a plus.  Bonus points for interactivity!
+
+
+```{r visualization}
+##input visualization code here
+
+ggplot(PK_data, aes(x=SEX, y=conc))+geom_point()
+ggplot(PK_data, aes(x = time, y = conc, group = SEX))   + geom_line(aes(color=SEX))+ geom_point(aes(shape=SEX, color=SEX))
+
+
+
+
+
+```
+
+
+## Analysis
+Next, we would like to estimate the PK property, area under the curve (AUC), for the drug based on the available data.  Please provide an **estimate** along with **associated variability**.  Explain in detail any imputations or assumptions that were made.  
+
+```{r AUC}
+##input code for estimating AUC here.
+
+
+auc(conc=PK_data$conc, time = PK_data$time, group=PK_data$SEX, method=c("t", "z", "boott"),
+         alternative=c("two.sided"),
+         conf.level=0.95, strata=NULL, nsample=1000,
+         design=c("batch"), PK_data)
+
+ 	
+  
+
+```
